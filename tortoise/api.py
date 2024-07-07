@@ -396,6 +396,7 @@ class TextToSpeech:
         text_tokens = torch.IntTensor(self.tokenizer.encode(text)).unsqueeze(0).to(self.device)
         text_tokens = F.pad(text_tokens, (0, 1))  # This may not be necessary.
         assert text_tokens.shape[-1] < 400, 'Too much text provided. Break the text up into separate segments and re-try inference.'
+        """
         auto_conds = None
         if voice_samples is not None:
             auto_conditioning, diffusion_conditioning, auto_conds, _ = self.get_conditioning_latents(voice_samples, return_mels=True)
@@ -405,6 +406,11 @@ class TextToSpeech:
             auto_conditioning, diffusion_conditioning = self.get_random_conditioning_latents()
         auto_conditioning = auto_conditioning.to(self.device)
         diffusion_conditioning = diffusion_conditioning.to(self.device)
+        torch.save(auto_conditioning, "auto_conditioning.pt")
+        torch.save(diffusion_conditioning, "diffusion_conditioning.pt")
+        """
+        auto_conditioning = torch.load("auto_conditioning.pt").to(self.device)
+        diffusion_conditioning = torch.load("diffusion_conditioning.pt").to(self.device)
 
         import numpy as np
         numpy_array = auto_conditioning.to("cpu").numpy().astype(np.float32)  # Ensure float32 for binary format
