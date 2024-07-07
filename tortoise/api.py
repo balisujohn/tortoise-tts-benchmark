@@ -150,6 +150,7 @@ def pick_best_batch_size_for_gpu():
     Tries to pick a batch size that will fit in your GPU. These sizes aren't guaranteed to work, but they should give
     you a good shot.
     """
+    return 1
     if torch.cuda.is_available():
         _, available = torch.cuda.mem_get_info()
         availableGb = available / (1024 ** 3)
@@ -326,6 +327,8 @@ class TextToSpeech:
             'fast': {'num_autoregressive_samples': 96, 'diffusion_iterations': 80},
             'standard': {'num_autoregressive_samples': 256, 'diffusion_iterations': 200},
             'high_quality': {'num_autoregressive_samples': 256, 'diffusion_iterations': 400},
+            'comparison': {'num_autoregressive_samples': 1, 'diffusion_iterations': 80},
+
         }
         settings.update(presets[preset])
         settings.update(kwargs) # allow overriding of preset settings with kwargs
@@ -385,6 +388,9 @@ class TextToSpeech:
         :return: Generated audio clip(s) as a torch tensor. Shape 1,S if k=1 else, (k,1,S) where S is the sample length.
                  Sample rate is 24kHz.
         """
+
+        k=1
+
         deterministic_seed = self.deterministic_state(seed=use_deterministic_seed)
 
         text_tokens = torch.IntTensor(self.tokenizer.encode(text)).unsqueeze(0).to(self.device)
@@ -399,6 +405,18 @@ class TextToSpeech:
             auto_conditioning, diffusion_conditioning = self.get_random_conditioning_latents()
         auto_conditioning = auto_conditioning.to(self.device)
         diffusion_conditioning = diffusion_conditioning.to(self.device)
+
+        import numpy as np
+        numpy_array = auto_conditioning.to("cpu").numpy().astype(np.float32)  # Ensure float32 for binary format
+
+        # Define the file path
+        file_path = 'auto_conditioning.bin'
+
+        # Save NumPy array as binary file
+        numpy_array.tofile(file_path)
+
+        print("saved auto conditioning")
+        #exit()
 
         diffuser = load_discrete_vocoder_diffuser(desired_diffusion_steps=diffusion_iterations, cond_free=cond_free, cond_free_k=cond_free_k)
 
@@ -440,9 +458,10 @@ class TextToSpeech:
                         padding_needed = max_mel_tokens - codes.shape[1]
                         codes = F.pad(codes, (0, padding_needed), value=stop_mel_token)
                         samples.append(codes)
-
-            clip_results = []
             
+            clip_results = []
+            best_results = None
+            """
             if not torch.backends.mps.is_available():
                 with self.temporary_cuda(self.clvp) as clvp, torch.autocast(
                     device_type="cuda" if not torch.backends.mps.is_available() else 'mps', dtype=torch.float16, enabled=self.half
@@ -508,6 +527,14 @@ class TextToSpeech:
             if self.cvvp is not None:
                 self.cvvp = self.cvvp.cpu()
             del samples
+            """
+            for sample in samples:
+                for i in range(sample.shape[0]):
+                    sample[i] = fix_autoregressive_output(sample[i], stop_mel_token)
+            samples = torch.cat(samples, dim=0)
+            best_results = samples[torch.tensor([0], dtype=torch.int32, device = self.device)]
+            
+            #exit()
 
             # The diffusion model actually wants the last hidden layer from the autoregressive model as conditioning
             # inputs. Re-produce those for the top results. This could be made more efficient by storing all of these
